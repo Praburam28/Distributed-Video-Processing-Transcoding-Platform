@@ -1,0 +1,168 @@
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-video_platform}
+      MYSQL_USER: ${MYSQL_USER:-video_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-video_pass}
+    ports:
+    - 3307:3306
+    volumes:
+    - mysql_data:/var/lib/mysql
+    healthcheck:
+      test:
+      - CMD
+      - mysqladmin
+      - ping
+      - -h
+      - localhost
+      - -p${MYSQL_ROOT_PASSWORD:-root}
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  api-gateway:
+    build:
+      context: .
+      dockerfile: services/api_gateway/Dockerfile
+    ports:
+    - 8000:8000
+    env_file:
+    - .env
+    depends_on:
+      mysql:
+        condition: service_healthy
+      upload-service:
+        condition: service_started
+      metadata-service:
+        condition: service_started
+      orchestrator-service:
+        condition: service_started
+      media-delivery:
+        condition: service_started
+  upload-service:
+    build:
+      context: .
+      dockerfile: services/upload_service/Dockerfile
+    ports:
+    - 8001:8001
+    env_file:
+    - .env
+    volumes:
+    - media_storage:/app/storage
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+  metadata-service:
+    build:
+      context: .
+      dockerfile: services/metadata_service/Dockerfile
+    ports:
+    - 8002:8002
+    env_file:
+    - .env
+    depends_on:
+      mysql:
+        condition: service_healthy
+  orchestrator-service:
+    build:
+      context: .
+      dockerfile: services/orchestrator_service/Dockerfile
+    ports:
+    - 8003:8003
+    env_file:
+    - .env
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+  thumbnail-service:
+    build:
+      context: .
+      dockerfile: services/thumbnail_service/Dockerfile
+    ports:
+    - 8004:8004
+    env_file:
+    - .env
+    volumes:
+    - media_storage:/app/storage
+    depends_on:
+      mysql:
+        condition: service_healthy
+  transcoding-worker:
+    build:
+      context: .
+      dockerfile: services/transcoding_worker/Dockerfile
+    env_file:
+    - .env
+    volumes:
+    - media_storage:/app/storage
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  media-delivery:
+    build:
+      context: .
+      dockerfile: services/media_delivery/Dockerfile
+    ports:
+    - 8006:8006
+    env_file:
+    - .env
+    volumes:
+    - media_storage:/app/storage
+    depends_on:
+      mysql:
+        condition: service_healthy
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+    - 5173:5173
+    depends_on:
+    - api-gateway
+  rabbitmq:
+    image: rabbitmq:3-management
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    ports:
+    - 5672:5672
+    - 15672:15672
+    volumes:
+    - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test:
+      - CMD
+      - rabbitmq-diagnostics
+      - -q
+      - ping
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  redis:
+    image: redis:7-alpine
+    ports:
+    - 6379:6379
+    volumes:
+    - redis_data:/data
+    healthcheck:
+      test:
+      - CMD
+      - redis-cli
+      - ping
+      interval: 10s
+      timeout: 5s
+      retries: 10
+volumes:
+  mysql_data: null
+  media_storage: null
+  rabbitmq_data: {}
+  redis_data: {}
